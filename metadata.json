@@ -1,0 +1,11 @@
+{
+    "name": "remote-sync",
+    "version": "1.0.0",
+    "description": "远程同步插件，支持通过网页端与桌宠交互",
+    "author": "Roo",
+    "entry": "index.js",
+    "config": {
+        "port": 8080,
+        "password": "laozhao123"
+    }
+}
