@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Remote Live2D Control</title>
+    <script src="./libs/pixi.min.js"></script>
+    <script src="./libs/live2d.min.js"></script>
+    <script src="./libs/live2dcubismcore.min.js"></script>
+    <script src="./libs/pixi-live2d-display.min.js"></script>
+    <style>
+        * { -webkit-user-select: none; user-select: none; }
+        body { margin: 0; padding: 0; background: #1a1a1a; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; width: 100vw; height: 100vh; }
+        #canvas { width: 100vw; height: 100vh; display: block; position: absolute; top: 0; left: 0; cursor: grab; }
+        #canvas:active { cursor: grabbing; }
+        
+        #ui { 
+            position: absolute; top: 20px; left: 20px; z-index: 100; 
+            background: rgba(0, 0, 0, 0.85); padding: 20px; border-radius: 15px; 
+            width: 280px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        #subtitle { 
+            position: absolute; bottom: 25%; left: 50%; transform: translateX(-50%); 
+            width: 90%; text-align: center; 
+            font-size: 20px; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.9); 
+            pointer-events: none; z-index: 50; padding: 10px; box-sizing: border-box;
+        }
+
+        input[type="password"], input[type="text"] { 
+            padding: 12px; border-radius: 8px; border: 1px solid #444; 
+            background: #2a2a2a; color: #fff; margin-bottom: 15px; 
+            width: 100%; box-sizing: border-box; outline: none; font-size: 16px;
+        }
+        
+        button { 
+            padding: 12px; border-radius: 8px; border: none; 
+            background: #007bff; color: white; cursor: pointer; 
+            font-weight: bold; transition: all 0.2s; width: 100%; 
+            margin-bottom: 10px; font-size: 16px;
+        }
+        button:active { transform: scale(0.98); opacity: 0.9; }
+        
+        .hidden { display: none !important; }
+
+        #chat-input-container { 
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); 
+            width: 90%; max-width: 800px; display: flex; gap: 12px; z-index: 100; 
+            background: rgba(0, 0, 0, 0.7); padding: 12px 20px; border-radius: 40px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4); align-items: center;
+        }
+        #chat-input { 
+            flex: 1; padding: 10px 5px; border: none; background: transparent; 
+            color: white; font-size: 16px; margin-bottom: 0;
+        }
+        #chat-send-btn { 
+            width: 100px; border-radius: 25px; margin-bottom: 0; 
+            background: #28a745; padding: 10px; font-size: 14px;
+        }
+
+        .mode-option { 
+            display: flex; align-items: center; gap: 12px; 
+            margin: 15px 0; cursor: pointer; user-select: none;
+        }
+        .mode-option input { width: 22px; height: 22px; cursor: pointer; }
+        
+        #mic-btn { 
+            background: #dc3545; font-size: 16px; padding: 15px; 
+            margin-top: 10px; box-shadow: 0 4px 10px rgba(220, 53, 69, 0.3);
+        }
+        #mic-btn.recording { 
+            background: #ffc107; color: #000; 
+            animation: pulse 1.5s infinite; 
+        }
+        @keyframes pulse { 
+            0% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(255, 193, 7, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0); }
+        }
+
+        hr { border: 0; border-top: 1px solid #444; margin: 20px 0; }
+        .label-small { font-size: 12px; color: #888; margin-bottom: 8px; }
+        
+        #debug-log {
+            position: absolute; top: 0; right: 0; width: 85%; height: 40%;
+            background: rgba(0,0,0,0.92); font-size: 11px; color: #0f0;
+            overflow-y: auto; z-index: 1000; pointer-events: auto; padding: 10px;
+            display: none; border-bottom: 2px solid #0f0;
+            word-break: break-all; font-family: monospace; line-height: 1.3;
+        }
+
+        #reconnect-btn {
+            position: absolute; bottom: 20px; right: 20px; z-index: 100;
+            background: #ff6b6b; padding: 12px 20px; border-radius: 8px;
+            border: none; color: white; cursor: pointer; display: none; font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            #ui { width: 260px; padding: 15px; top: 10px; left: 10px; }
+            #subtitle { font-size: 18px; bottom: 20%; }
+            #chat-input-container { width: 95%; bottom: 20px; padding: 10px 15px; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="subtitle"></div>
+    <div id="debug-log"></div>
+    <button id="reconnect-btn" onclick="reconnect()">重新连接</button>
+
+    <div id="ui">
+        <div id="auth-box">
+            <div style="margin-bottom: 15px; font-weight: bold; text-align: center;">Neuro Remote Sync</div>
+            <input type="password" id="password" placeholder="请输入访问密码">
+            <button onclick="connect()">连接 (Connect)</button>
+        </div>
+        
+        <div id="controls" class="hidden">
+            <div class="mode-option">
+                <input type="checkbox" id="asr-mode">
+                <span>启用语音模式 (ASR)</span>
+            </div>
+            <button id="mic-btn" class="hidden">按住说话 (Hold to Speak)</button>
+            
+            <div class="mode-option">
+                <input type="checkbox" id="text-mode" onchange="toggleChat(this.checked)">
+                <span>启用文字模式 (Text)</span>
+            </div>
+            
+            <hr>
+            <div class="label-small">模型 JSON 路径:</div>
+            <input type="text" id="model-path" placeholder="Model JSON Path" value="./肥牛2.3.model3.json">
+            <button onclick="loadModel()" style="background: #6c757d;">重新加载模型</button>
+        </div>
+    </div>
+
+    <div id="chat-input-container" class="hidden">
+        <input type="text" id="chat-input" placeholder="输入消息内容...">
+        <button id="chat-send-btn" onclick="sendText()">发送</button>
+    </div>
+
+    <script>
+        // ===== 防止页面刷新 =====
+        let isPageStable = true;
+        let crashCount = 0;
+        const MAX_CRASHES = 3;
+
+        window.onbeforeunload = function(e) {
+            if (!isPageStable) {
+                e.preventDefault();
+                e.returnValue = '';
+                return '';
+            }
+        };
+
+        window.onerror = function(msg, url, line, col, error) {
+            log(`❌ 运行时错误 [${line}:${col}]: ${msg}`);
+            crashCount++;
+            if (crashCount > MAX_CRASHES) {
+                isPageStable = false;
+                log('⚠️ 检测到多次崩溃，已禁用自动操作');
+            }
+            return true;
+        };
+
+        window.onunhandledrejection = function(event) {
+            log(`❌ Promise 拒绝: ${event.reason}`);
+            event.preventDefault();
+        };
+
+        // ===== 全局变量 =====
+        let ws;
+        let model;
+        let app;
+        let mediaRecorder;
+        let isInitializing = false;
+        let isDragging = false;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        // 音频单例与队列管理
+        const ttsAudio = new Audio();
+        let audioQueue = []; // 存储 { audio: base64, text: string }
+        let isPlayingAudio = false;
+        let isAudioUnlocked = false;
+
+        // 预热解锁函数
+        function unlockAudio() {
+            if (isAudioUnlocked) return;
+            log('尝试解锁音频系统...');
+            // 播放一段极短的静音
+            ttsAudio.src = "data:audio/wav;base64,UklGRigAAABXQVZFAmZtdCAQAAAAAQABAAgAgAAAAICAAACBAAgAZGF0YQAAAAA=";
+            ttsAudio.play().then(() => {
+                log('✓ 音频系统已解锁');
+                isAudioUnlocked = true;
+            }).catch(e => {
+                log('⚠️ 解锁尝试中: ' + e.message);
+            });
+        }
+
+        // 绑定全局点击/触摸解锁
+        document.addEventListener('click', unlockAudio, { once: true });
+        document.addEventListener('touchstart', unlockAudio, { once: true });
+
+        if (window.location.search.includes('debug=1')) {
+            document.getElementById('debug-log').style.display = 'block';
+        }
+
+        function log(msg) {
+            const el = document.getElementById('debug-log');
+            const div = document.createElement('div');
+            div.style.borderBottom = "1px solid #333";
+            div.style.padding = "2px 0";
+            div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            el.appendChild(div);
+            el.scrollTop = el.scrollHeight;
+            console.log(msg);
+            
+            if (el.children.length > 150) {
+                el.removeChild(el.firstChild);
+            }
+        }
+
+        log('页面已加载');
+        const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+        const isAndroid = /Android/.test(navigator.userAgent);
+        log('设备: ' + (isIOS ? 'iOS' : isAndroid ? 'Android' : 'PC'));
+
+        // 初始化 Live2D 渲染器
+        async function initLive2D() {
+            if (app || isInitializing) {
+                log('⚠️ 已在初始化中或已初始化');
+                return;
+            }
+            
+            isInitializing = true;
+            
+            try {
+                log('检查依赖库...');
+                if (!window.PIXI) { log('❌ PIXI 未定义'); isInitializing = false; return; }
+                if (!PIXI.live2d) { log('❌ PIXI.live2d 未定义'); isInitializing = false; return; }
+                
+                log('正在初始化 PIXI Application...');
+                
+                const canvas = document.getElementById('canvas');
+                
+                // 提高清晰度 - 使用设备像素比 (无强制限制)
+                let pixelRatio = window.devicePixelRatio || 1;
+                let antialias = true;
+                log('渲染模式: 像素比=' + pixelRatio + ', 抗锯齿=' + antialias);
+                
+                // 创建 PIXI 应用 - 启用自动 resize
+                app = new PIXI.Application({
+                    view: canvas,
+                    autoStart: true,
+                    backgroundAlpha: 0,
+                    resizeTo: window,
+                    antialias: antialias,
+                    resolution: pixelRatio,
+                    autoDensity: true,
+                    powerPreference: 'high-performance',
+                    preserveDrawingBuffer: false,
+                    failIfMajorPerformanceCaveat: false
+                });
+                
+                log('✓ PIXI 初始化成功');
+                
+                // 添加模型拖动功能
+                setupModelDragging();
+                
+                isInitializing = false;
+                await loadModel();
+                
+            } catch (e) {
+                log('❌ PIXI 初始化失败: ' + e.message);
+                console.error(e);
+                isInitializing = false;
+            }
+        }
+
+        // 设置模型拖动
+        function setupModelDragging() {
+            const canvas = document.getElementById('canvas');
+            
+            canvas.addEventListener('mousedown', (e) => {
+                if (!model) return;
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                if (Math.abs(x - model.x) < 100 && Math.abs(y - model.y) < 100) {
+                    isDragging = true;
+                    dragOffsetX = x - model.x;
+                    dragOffsetY = y - model.y;
+                }
+            });
+            
+            canvas.addEventListener('mousemove', (e) => {
+                if (!isDragging || !model) return;
+                const rect = canvas.getBoundingClientRect();
+                model.x = e.clientX - rect.left - dragOffsetX;
+                model.y = e.clientY - rect.top - dragOffsetY;
+            });
+            
+            canvas.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+            
+            canvas.addEventListener('touchstart', (e) => {
+                if (!model) return;
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                
+                if (Math.abs(x - model.x) < 100 && Math.abs(y - model.y) < 100) {
+                    isDragging = true;
+                    dragOffsetX = x - model.x;
+                    dragOffsetY = y - model.y;
+                }
+            });
+            
+            canvas.addEventListener('touchmove', (e) => {
+                if (!isDragging || !model) return;
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                model.x = touch.clientX - rect.left - dragOffsetX;
+                model.y = touch.clientY - rect.top - dragOffsetY;
+            });
+            
+            canvas.addEventListener('touchend', () => {
+                isDragging = false;
+            });
+        }
+
+        // 加载模型 - 无超时限制
+        async function loadModel() {
+            const path = document.getElementById('model-path').value;
+            if (!path) {
+                log('❌ 模型路径为空');
+                return;
+            }
+            
+            if (model) {
+                try {
+                    log('卸载旧模型...');
+                    app.stage.removeChild(model);
+                    model.destroy();
+                    model = null;
+                } catch (e) {
+                    log('⚠️ 卸载旧模型时出错: ' + e.message);
+                }
+            }
+
+            try {
+                log('加载模型: ' + path);
+                
+                // 无超时限制，直接加载
+                model = await PIXI.live2d.Live2DModel.from(path, { autoInteract: true });
+                
+                if (!model) {
+                    log('❌ 模型为空');
+                    return;
+                }
+                
+                log('✓ 模型加载完成，正在添加到舞台...');
+                
+                try {
+                    app.stage.addChild(model);
+                    log('✓ 模型已添加到舞台');
+                } catch (e) {
+                    log('❌ 添加模型到舞台失败: ' + e.message);
+                    model = null;
+                    return;
+                }
+                
+                // 位置调整
+                try {
+                    const scale = Math.min(app.screen.width / model.width, app.screen.height / model.height) * 0.8;
+                    model.scale.set(scale);
+                    model.x = app.screen.width / 2;
+                    model.y = app.screen.height / 2;
+                    model.anchor.set(0.5, 0.5);
+                    log('✓ 模型加载成功，可拖动移动');
+                } catch (e) {
+                    log('⚠️ 模型位置调整失败: ' + e.message);
+                }
+                
+            } catch (e) {
+                log('❌ 模型加载失败: ' + e.message);
+                model = null;
+            }
+        }
+
+        // 连接 WebSocket
+        function connect() {
+            unlockAudio(); // 点击连接时再次尝试解锁音频
+            const password = document.getElementById('password').value;
+            const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            const wsUrl = `${protocol}://${window.location.host}/ws`;
+            
+            log('连接到: ' + wsUrl);
+            
+            try {
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    log('✓ WebSocket 已连接');
+                    document.getElementById('reconnect-btn').style.display = 'none';
+                    ws.send(JSON.stringify({ type: 'auth', password }));
+                };
+
+                ws.onmessage = (e) => {
+                    try {
+                        const data = JSON.parse(e.data);
+                        handleMessage(data);
+                    } catch (err) {
+                        log('❌ 消息解析失败: ' + err.message);
+                    }
+                };
+
+                ws.onerror = (err) => {
+                    log('❌ WebSocket 错误');
+                };
+
+                ws.onclose = () => {
+                    log('⚠️ WebSocket 已断开');
+                    document.getElementById('reconnect-btn').style.display = 'block';
+                };
+            } catch (e) {
+                log('❌ 连接创建失败: ' + e.message);
+            }
+        }
+
+        function reconnect() {
+            log('用户手动重连...');
+            connect();
+        }
+
+        // 处理后端消息
+        function handleMessage(data) {
+            try {
+                switch(data.type) {
+                    case 'auth_success':
+                        log('✓ 认证成功');
+                        document.getElementById('auth-box').classList.add('hidden');
+                        document.getElementById('controls').classList.remove('hidden');
+                        initLive2D();
+                        break;
+                    case 'auth_failed':
+                        log('❌ 密码错误');
+                        break;
+                    case 'tts_start':
+                        log('📢 收到 TTS: ' + data.text);
+                        if (data.audio) {
+                            log('🔊 音频数据大小: ' + (data.audio.length / 1024).toFixed(2) + ' KB');
+                            playAudio(data.audio, data.text);
+                        } else {
+                            log('⚠️ 音频数据为空');
+                            showSubtitle(data.text);
+                        }
+                        break;
+                    case 'model_motion':
+                        if (model) {
+                            try {
+                                model.motion(data.group, data.index);
+                            } catch (e) {
+                                log('⚠️ 播放动作失败: ' + e.message);
+                            }
+                        }
+                        break;
+                    case 'model_expression':
+                        if (model) {
+                            try {
+                                model.expression(data.id);
+                            } catch (e) {
+                                log('⚠️ 播放表情失败: ' + e.message);
+                            }
+                        }
+                        break;
+                    case 'subtitle_show':
+                        showSubtitle(data.text, data.duration);
+                        break;
+                }
+            } catch (e) {
+                log('❌ 消息处理失败: ' + e.message);
+            }
+        }
+
+        function showSubtitle(text, duration = 3000) {
+            const el = document.getElementById('subtitle');
+            el.innerText = text;
+            clearTimeout(window.subtitleTimer);
+            window.subtitleTimer = setTimeout(() => el.innerText = '', duration);
+        }
+
+        // 播放音频 - 引入队列机制解决中断和音画同步问题
+        async function playAudio(base64, text) {
+            if (!base64) return;
+            audioQueue.push({ audio: base64, text: text });
+            if (!isPlayingAudio) {
+                processAudioQueue();
+            }
+        }
+
+        async function processAudioQueue() {
+            if (audioQueue.length === 0) {
+                isPlayingAudio = false;
+                return;
+            }
+
+            isPlayingAudio = true;
+            const item = audioQueue.shift();
+            
+            try {
+                ttsAudio.src = "data:audio/wav;base64," + item.audio;
+                
+                // 播放结束后的回调
+                ttsAudio.onended = () => {
+                    processAudioQueue();
+                };
+
+                // 播放出错的回调
+                ttsAudio.onerror = () => {
+                    log('❌ 音频播放出错');
+                    processAudioQueue();
+                };
+
+                const playPromise = ttsAudio.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        // 音频开始播放时才显示字幕
+                        if (item.text) {
+                            showSubtitle(item.text);
+                        }
+                        // 基础口型动画
+                        startSimpleMouthSync();
+                    }).catch(error => {
+                        log('❌ 播放拦截: ' + error.message);
+                        isPlayingAudio = false;
+                    });
+                }
+            } catch (e) {
+                log('❌ 队列处理异常: ' + e.message);
+                processAudioQueue();
+            }
+        }
+
+        // 基础口型同步（取消之前的优化，回归简单实现）
+        function startSimpleMouthSync() {
+            if (!model) return;
+            
+            const interval = setInterval(() => {
+                if (ttsAudio.paused || ttsAudio.ended) {
+                    clearInterval(interval);
+                    model.internalModel.coreModel.setParameterValueById('ParamMouthOpenY', 0);
+                    return;
+                }
+                // 简单的随机值
+                const val = Math.random() * 0.7 + 0.1;
+                model.internalModel.coreModel.setParameterValueById('ParamMouthOpenY'， val);
+            }, 100);
+        }
+
+        function toggleChat(show) {
+            document.getElementById('chat-input-container').classList.toggle('hidden', !show);
+        }
+
+        function sendText() {
+            const input = document.getElementById('chat-input');
+            if (input.value && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'text_input'， text: input.value }));
+                input.value = '';
+            }
+        }
+
+        const micBtn = document.getElementById('mic-btn');
+        document.getElementById('asr-mode').onchange = (e) => {
+            micBtn.classList.toggle('hidden', !e.target.checked);
+            if (e.target.checked) initMic();
+        };
+
+        async function initMic() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                let chunks = [];
+                
+                mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+                mediaRecorder.onstop = async () => {
+                    const blob = new Blob(chunks, { type: 'audio/ogg; codecs=opus' });
+                    chunks = [];
+                    
+                    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    if (!SpeechRecognition) {
+                        log('❌ 浏览器不支持语音识别');
+                        return;
+                    }
+                    
+                    const recognition = new SpeechRecognition();
+                    recognition.lang = 'zh-CN';
+                    recognition.onresult = (event) => {
+                        const text = event.results[0][0].transcript;
+                        log('🎤 ASR: ' + text);
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'audio_input'， text }));
+                        }
+                    };
+                    recognition.start();
+                };
+            } catch (e) {
+                log('❌ 麦克风初始化失败: ' + e.message);
+            }
+        }
+
+        const startRecording = () => {
+            if (mediaRecorder && mediaRecorder.state === 'inactive') {
+                mediaRecorder.start();
+                micBtn.classList.add('recording');
+                micBtn.innerText = '正在录音...';
+            }
+        };
+        const stopRecording = () => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                micBtn.classList.remove('recording');
+                micBtn.innerText = '按住说话';
+            }
+        };
+
+        micBtn.onmousedown = startRecording;
+        micBtn.onmouseup = stopRecording;
+        micBtn.ontouchstart = (e) => { e.preventDefault(); startRecording(); };
+        micBtn.ontouchend = (e) => { e.preventDefault(); stopRecording(); };
+
+    </script>
+</body>
+</html>
