@@ -130,7 +130,7 @@
             
             <hr>
             <div class="label-small">模型 JSON 路径:</div>
-            <input type="text" id="model-path" placeholder="Model JSON Path" value="./肥牛2.3.model3.json">
+            <input type="text" id="model-path" placeholder="Model JSON Path" value="./肥牛2.3.low.model3.json">
             <button onclick="loadModel()" style="background: #6c757d;">重新加载模型</button>
         </div>
     </div>
@@ -178,6 +178,13 @@
         let isDragging = false;
         let dragOffsetX = 0;
         let dragOffsetY = 0;
+        
+        // 缩放相关变量
+        let modelScale = 1;
+        const MIN_SCALE = 0.05;
+        const MAX_SCALE = 1.5;
+        const SCALE_STEP = 0.1;
+        let lastTouchDistance = 0;
 
         // 音频单例与队列管理
         const ttsAudio = new Audio();
@@ -307,8 +314,37 @@
                 isDragging = false;
             });
             
+            // 鼠标滚轮缩放（电脑）
+            canvas.addEventListener('wheel', (e) => {
+                if (!model) return;
+                e.preventDefault();
+                
+                const delta = e.deltaY > 0 ? -SCALE_STEP : SCALE_STEP;
+                const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, modelScale + delta));
+                
+                if (newScale !== modelScale) {
+                    modelScale = newScale;
+                    model.scale.set(modelScale);
+                    log(`🔍 模型缩放: ${(modelScale * 100).toFixed(0)}%`);
+                }
+            }, { passive: false });
+            
             canvas.addEventListener('touchstart', (e) => {
                 if (!model) return;
+                
+                // 双指缩放
+                if (e.touches.length === 2) {
+                    e.preventDefault();
+                    const touch1 = e.touches[0];
+                    const touch2 = e.touches[1];
+                    const dx = touch2.clientX - touch1.clientX;
+                    const dy = touch2.clientY - touch1.clientY;
+                    lastTouchDistance = Math.sqrt(dx * dx + dy * dy);
+                    isDragging = false;
+                    return;
+                }
+                
+                // 单指拖动
                 const rect = canvas.getBoundingClientRect();
                 const touch = e.touches[0];
                 const x = touch.clientX - rect.left;
@@ -322,6 +358,33 @@
             });
             
             canvas.addEventListener('touchmove', (e) => {
+                if (!model) return;
+                
+                // 双指缩放
+                if (e.touches.length === 2) {
+                    e.preventDefault();
+                    const touch1 = e.touches[0];
+                    const touch2 = e.touches[1];
+                    const dx = touch2.clientX - touch1.clientX;
+                    const dy = touch2.clientY - touch1.clientY;
+                    const currentDistance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (lastTouchDistance > 0) {
+                        const ratio = currentDistance / lastTouchDistance;
+                        const delta = (ratio - 1) * 0.5; // 缩放灵敏度
+                        const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, modelScale * (1 + delta)));
+                        
+                        if (newScale !== modelScale) {
+                            modelScale = newScale;
+                            model.scale.set(modelScale);
+                            log(`🔍 模型缩放: ${(modelScale * 100).toFixed(0)}%`);
+                        }
+                    }
+                    lastTouchDistance = currentDistance;
+                    return;
+                }
+                
+                // 单指拖动
                 if (!isDragging || !model) return;
                 const rect = canvas.getBoundingClientRect();
                 const touch = e.touches[0];
@@ -331,6 +394,7 @@
             
             canvas.addEventListener('touchend', () => {
                 isDragging = false;
+                lastTouchDistance = 0;
             });
         }
 
@@ -559,7 +623,7 @@
                 }
                 // 简单的随机值
                 const val = Math.random() * 0.7 + 0.1;
-                model.internalModel.coreModel.setParameterValueById('ParamMouthOpenY'， val);
+                model.internalModel.coreModel.setParameterValueById('ParamMouthOpenY', val);
             }, 100);
         }
 
@@ -570,7 +634,7 @@
         function sendText() {
             const input = document.getElementById('chat-input');
             if (input.value && ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'text_input'， text: input.value }));
+                ws.send(JSON.stringify({ type: 'text_input', text: input.value }));
                 input.value = '';
             }
         }
@@ -604,7 +668,7 @@
                         const text = event.results[0][0].transcript;
                         log('🎤 ASR: ' + text);
                         if (ws && ws.readyState === WebSocket.OPEN) {
-                            ws.send(JSON.stringify({ type: 'audio_input'， text }));
+                            ws.send(JSON.stringify({ type: 'audio_input', text }));
                         }
                     };
                     recognition.start();
