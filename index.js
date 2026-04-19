@@ -6,7 +6,7 @@ class RemoteSyncPlugin extends Plugin {
     async onInit() {
         const config = this.context.getPluginConfig();
         this.port = config.port || 8080;
-        this.password = config.password || 'laozhao123';
+        this.password = config.password || 'admin';
         this.clients = new Set();
         
         this.startServer();
