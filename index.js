@@ -70,8 +70,34 @@ class RemoteSyncPlugin extends Plugin {
                 await this.context.sendMessage(data.text);
                 break;
             case 'audio_input':
-                // 手机端 ASR 识别后的文本，或者原始音频流（这里简化为文本）
-                if (data.text) {
+                // 接收音频数据并处理
+                if (data.audio) {
+                    const audioBuffer = Buffer.from(data.audio, 'base64');
+                    
+                    // 使用 fetch 调用本地 ASR 服务
+                    try {
+                        const formData = new FormData();
+                        // 将 buffer 转换为 blob
+                        const blob = new Blob([audioBuffer], { type: 'audio/webm' });
+                        formData.append('file', blob, 'recording.webm');
+
+                        const response = await fetch('http://127.0.0.1:1000/v1/upload_audio', {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        if (response.ok) {
+                            const result = await response.json();
+                            if (result.text) {
+                                await this.context.sendMessage(result.text);
+                            }
+                        } else {
+                            console.error('[RemoteSync] ASR service error:', response.statusText);
+                        }
+                    } catch (err) {
+                        console.error('[RemoteSync] Failed to call ASR service:', err);
+                    }
+                } else if (data.text) {
                     await this.context.sendMessage(data.text);
                 }
                 break;
