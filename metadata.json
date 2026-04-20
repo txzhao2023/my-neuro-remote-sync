@@ -6,6 +6,6 @@
     "entry": "index.js",
     "config": {
         "port": 8080,
-        "password": "laozhao123"
+        "password": "admin"
     }
 }
