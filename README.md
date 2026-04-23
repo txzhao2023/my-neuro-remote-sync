@@ -47,7 +47,7 @@ debug：https://你的域名/?debug=1
 - **本地电脑 (Windows PC)**：真正的算力核心，跑动 AI 模型、提供语音/文字逻辑响应
 - **FRP 内网穿透**：一条隐形的网线，把云服务器和您家里的电脑连在一起
 
-> **前提条件**：修改 [`js/voice/tts-playback-engine.js`](../../js/voice/tts-playback-engine.js) 的第 78 行为：
+> **前提条件**：修改 [`js/voice/tts-playback-engine.js`](../../js/voice/tts-playback-engine.js) 的第 78 行eventBus.emit(Events.TTS_START);为：
 > ```javascript
 > eventBus.emit(Events.TTS_START, { text: segmentText, audioBlob: audioBlob });
 > ```
